@@ -1,0 +1,309 @@
+name: Settings APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+
+      - name: Build APK
+        run: |
+          wget -q https://services.gradle.org/distributions/gradle-8.2-bin.zip
+          unzip -q gradle-8.2-bin.zip
+          export PATH="$PWD/gradle-8.2/bin:$PATH"
+
+          rm -rf app build.gradle settings.gradle gradle.properties
+
+          mkdir -p app/src/main/java/com/example/shtile
+          mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/res/layout
+          mkdir -p app/src/main/res/values
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "Settings"
+          include ':app'
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.2.2' apply false
+              id 'org.jetbrains.kotlin.android' version '1.9.22' apply false
+          }
+          EOF
+
+          cat > gradle.properties <<'EOF'
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          org.gradle.jvmargs=-Xmx2048m
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
+          }
+          android {
+              namespace 'com.example.shtile'
+              compileSdk 34
+              defaultConfig {
+                  applicationId "com.example.shtile"
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 25
+                  versionName "25.0"
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = '17' }
+          }
+          dependencies {
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application
+                  android:allowBackup="true"
+                  android:label="Settings"
+                  android:theme="@style/Theme.AppCompat.NoActionBar">
+
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+
+                  <receiver android:name=".RunnerReceiver" android:exported="false"/>
+
+                  <service
+                      android:name=".SafeTileService"
+                      android:exported="true"
+                      android:icon="@drawable/ic_tile_normal"
+                      android:label="Boot"
+                      android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+                      <intent-filter>
+                          <action android:name="android.service.quicksettings.action.QS_TILE"/>
+                      </intent-filter>
+                  </service>
+
+                  <service
+                      android:name=".BoostTileService"
+                      android:exported="true"
+                      android:icon="@drawable/ic_tile_normal"
+                      android:label="Turbo Mode"
+                      android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+                      <intent-filter>
+                          <action android:name="android.service.quicksettings.action.QS_TILE"/>
+                      </intent-filter>
+                  </service>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/java/com/example/shtile/Runner.kt <<'EOF'
+          package com.example.shtile
+
+          import android.content.Context
+          import android.os.Handler
+          import android.os.Looper
+          import android.widget.Toast
+
+          object Runner {
+              fun runNormal(context: Context) {
+                  Thread {
+                      val code = try {
+                          val p = ProcessBuilder("su", "-c", "cd /data/local/tmp && ./.ixl")
+                              .redirectErrorStream(true).start()
+                          p.inputStream.bufferedReader().readText()
+                          p.waitFor()
+                      } catch (e: Exception) { -1 }
+                      Handler(Looper.getMainLooper()).post {
+                          Toast.makeText(context,
+                              if (code == 0) "INX-EXE Done" else "INX-EXE Exit $code",
+                              Toast.LENGTH_SHORT).show()
+                      }
+                  }.start()
+              }
+
+              fun runTurbo(context: Context) {
+                  Thread {
+                      val code = try {
+                          val p = ProcessBuilder("su", "-c", "cd /data/local/tmp && ./Gucci_didi")
+                              .redirectErrorStream(true).start()
+                          p.inputStream.bufferedReader().readText()
+                          p.waitFor()
+                      } catch (e: Exception) { -1 }
+                      Handler(Looper.getMainLooper()).post {
+                          Toast.makeText(context,
+                              if (code == 0) "Turbo Mode Done" else "Turbo Mode Exit $code",
+                              Toast.LENGTH_SHORT).show()
+                      }
+                  }.start()
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/shtile/RunnerReceiver.kt <<'EOF'
+          package com.example.shtile
+
+          import android.content.BroadcastReceiver
+          import android.content.Context
+          import android.content.Intent
+
+          class RunnerReceiver : BroadcastReceiver() {
+              override fun onReceive(context: Context, intent: Intent) {
+                  when (intent.action) {
+                      "com.example.shtile.RUN_NORMAL" -> Runner.runNormal(context)
+                      "com.example.shtile.RUN_BOOST" -> Runner.runTurbo(context)
+                  }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/shtile/SafeTileService.kt <<'EOF'
+          package com.example.shtile
+
+          import android.content.Intent
+          import android.service.quicksettings.Tile
+          import android.service.quicksettings.TileService
+
+          class SafeTileService : TileService() {
+              override fun onStartListening() {
+                  super.onStartListening()
+                  qsTile?.apply {
+                      label = "Boot"
+                      state = Tile.STATE_INACTIVE
+                      updateTile()
+                  }
+              }
+              override fun onClick() {
+                  super.onClick()
+                  val i = Intent(this, RunnerReceiver::class.java).apply {
+                      action = "com.example.shtile.RUN_NORMAL"
+                  }
+                  sendBroadcast(i)
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/shtile/BoostTileService.kt <<'EOF'
+          package com.example.shtile
+
+          import android.content.Intent
+          import android.service.quicksettings.Tile
+          import android.service.quicksettings.TileService
+
+          class BoostTileService : TileService() {
+              override fun onStartListening() {
+                  super.onStartListening()
+                  qsTile?.apply {
+                      label = "Turbo Mode"
+                      state = Tile.STATE_INACTIVE
+                      updateTile()
+                  }
+              }
+              override fun onClick() {
+                  super.onClick()
+                  val i = Intent(this, RunnerReceiver::class.java).apply {
+                      action = "com.example.shtile.RUN_BOOST"
+                  }
+                  sendBroadcast(i)
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/shtile/MainActivity.kt <<'EOF'
+          package com.example.shtile
+
+          import android.os.Bundle
+          import android.widget.Button
+          import android.widget.TextView
+          import androidx.appcompat.app.AppCompatActivity
+
+          class MainActivity : AppCompatActivity() {
+              private lateinit var status: TextView
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContentView(R.layout.activity_main)
+
+                  status = findViewById(R.id.status)
+
+                  findViewById<Button>(R.id.testSafeBtn).setOnClickListener {
+                      status.text = "Running INX-EXE..."
+                      Runner.runNormal(this)
+                  }
+
+                  status.text = "Ready to test."
+              }
+          }
+          EOF
+
+          cat > app/src/main/res/layout/activity_main.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:orientation="vertical"
+              android:padding="24dp"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent">
+
+              <Button android:id="@+id/testSafeBtn"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:text="INX-EXE"/>
+
+              <TextView android:id="@+id/status"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:paddingTop="16dp"
+                  android:typeface="monospace"
+                  android:textSize="12sp"/>
+          </LinearLayout>
+          EOF
+
+          cat > app/src/main/res/drawable/ic_tile_normal.xml <<'EOF'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="24dp" android:height="24dp"
+              android:viewportWidth="24" android:viewportHeight="24">
+              <path android:fillColor="#FFFFFFFF"
+                  android:pathData="M12,2L4,5v6c0,5.55 3.84,10.74 8,12 4.16,-1.26 8,-6.45 8,-12V5l-8,-3z"/>
+          </vector>
+          EOF
+
+          cat > app/src/main/res/values/strings.xml <<'EOF'
+          <resources><string name="app_name">Settings</string></resources>
+          EOF
+
+          gradle assembleDebug --no-daemon --stacktrace
+
+          ls -la app/build/outputs/apk/debug/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Settings-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
